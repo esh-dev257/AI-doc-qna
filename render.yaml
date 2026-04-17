@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: ai-doc-qna
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DB
+        value: ai_qa
+      - key: JWT_SECRET
+        generateValue: true
+      - key: LLM_PROVIDER
+        value: auto
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_EMBED_MODEL
+        value: gemini-embedding-001
+      - key: GEMINI_TRANSCRIBE_MODEL
+        value: gemini-2.5-flash
+      - key: REDIS_ENABLED
+        value: "false"
+      - key: UPLOAD_DIR
+        value: /data/uploads
+      - key: MAX_UPLOAD_MB
+        value: "200"
+      - key: CORS_ORIGINS
+        value: "*"
+    disk:
+      name: uploads
+      mountPath: /data/uploads
+      sizeGB: 1
