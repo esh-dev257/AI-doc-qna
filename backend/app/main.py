@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from app.config import get_settings
 from app.database import close_db, ensure_indexes
 from app.routers import auth, chat, files
 
+logger = logging.getLogger(__name__)
+
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
@@ -19,7 +22,7 @@ async def lifespan(app: FastAPI):
     try:
         await ensure_indexes()
     except Exception:
-        pass
+        logger.exception("ensure_indexes failed at startup — database is likely unreachable")
     yield
     await close_db()
 

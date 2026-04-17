@@ -1,12 +1,15 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import TokenResponse, UserCreate, UserLogin, UserOut
 from app.services.security import create_access_token, hash_password, verify_password
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -23,6 +26,9 @@ async def register(payload: UserCreate) -> TokenResponse:
         result = await db.users.insert_one(doc)
     except DuplicateKeyError:
         raise HTTPException(status.HTTP_409_CONFLICT, "Email already registered")
+    except PyMongoError:
+        logger.exception("register: database write failed")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Database unavailable")
     token = create_access_token(str(result.inserted_id), {"email": doc["email"]})
     return TokenResponse(access_token=token)
 
@@ -30,7 +36,11 @@ async def register(payload: UserCreate) -> TokenResponse:
 @router.post("/login", response_model=TokenResponse)
 async def login(payload: UserLogin) -> TokenResponse:
     db = get_db()
-    user = await db.users.find_one({"email": payload.email.lower()})
+    try:
+        user = await db.users.find_one({"email": payload.email.lower()})
+    except PyMongoError:
+        logger.exception("login: database read failed")
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Database unavailable")
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
     token = create_access_token(str(user["_id"]), {"email": user["email"]})
