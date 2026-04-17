@@ -35,9 +35,17 @@ class _FakeModel:
         return _FakeGenResponse("gemini answer")
 
 
+class _FakeUploadedFile:
+    def __init__(self, path, state_name="ACTIVE"):
+        self.path = path
+        self.name = "files/fake"
+        self.state = types.SimpleNamespace(name=state_name)
+
+
 class _FakeGenAI:
     def __init__(self):
         self.configured_with = None
+        self.deleted: list[str] = []
 
     def configure(self, api_key):
         self.configured_with = api_key
@@ -49,7 +57,13 @@ class _FakeGenAI:
         return _FakeModel(name, system_instruction=system_instruction)
 
     def upload_file(self, path):
-        return types.SimpleNamespace(path=path)
+        return _FakeUploadedFile(path)
+
+    def get_file(self, name):
+        return _FakeUploadedFile(name)
+
+    def delete_file(self, name):
+        self.deleted.append(name)
 
 
 @pytest.fixture
@@ -206,3 +220,47 @@ def test_parse_transcript_skips_bad_items():
 
 def test_parse_transcript_unparseable():
     assert llm_mod._parse_transcript_json("no json here") == []
+
+
+def test_await_gemini_file_ready_becomes_active():
+    calls: list[str] = []
+
+    class Fake:
+        def get_file(self, name):
+            calls.append(name)
+            return _FakeUploadedFile(name, state_name="ACTIVE")
+
+    pending = _FakeUploadedFile("files/x", state_name="PROCESSING")
+    out = llm_mod._await_gemini_file_ready(Fake(), pending, timeout=5, interval=0.01)
+    assert out.state.name == "ACTIVE"
+    assert calls == ["files/fake"]
+
+
+def test_await_gemini_file_ready_raises_on_failed():
+    class Fake:
+        def get_file(self, name):
+            return _FakeUploadedFile(name, state_name="FAILED")
+
+    pending = _FakeUploadedFile("files/x", state_name="PROCESSING")
+    with pytest.raises(RuntimeError):
+        llm_mod._await_gemini_file_ready(Fake(), pending, timeout=5, interval=0.01)
+
+
+def test_await_gemini_file_ready_times_out():
+    class Fake:
+        def get_file(self, name):
+            return _FakeUploadedFile(name, state_name="PROCESSING")
+
+    pending = _FakeUploadedFile("files/x", state_name="PROCESSING")
+    with pytest.raises(TimeoutError):
+        llm_mod._await_gemini_file_ready(Fake(), pending, timeout=0.05, interval=0.01)
+
+
+def test_await_gemini_file_ready_already_active_returns_immediately():
+    class Fake:
+        def get_file(self, name):
+            raise AssertionError("should not be called")
+
+    ready = _FakeUploadedFile("files/x", state_name="ACTIVE")
+    out = llm_mod._await_gemini_file_ready(Fake(), ready, timeout=1, interval=0.01)
+    assert out is ready
