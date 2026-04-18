@@ -1,6 +1,12 @@
+const KIND_EMOJI = { pdf: "📄", audio: "🎧", video: "🎬" };
+
 export default function FileList({ items, selectedId, onSelect, onDelete }) {
   if (items.length === 0) {
-    return <div className="empty" style={{ padding: 10 }}>No files yet.</div>;
+    return (
+      <div className="empty" style={{ padding: 16 }}>
+        No files yet.
+      </div>
+    );
   }
   return (
     <ul className="file-list">
@@ -10,15 +16,18 @@ export default function FileList({ items, selectedId, onSelect, onDelete }) {
           className={`file-item ${selectedId === f.id ? "active" : ""}`}
           onClick={() => onSelect(f.id)}
         >
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div className="name">{f.filename}</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <div className="name">
+              <span style={{ marginRight: 6 }}>{KIND_EMOJI[f.kind] || "📎"}</span>
+              {f.filename}
+            </div>
             <span className={`badge ${f.status}`}>{f.status}</span>
           </div>
           <div className="meta">
             {f.kind.toUpperCase()} · {formatSize(f.size_bytes)}
             {f.duration_seconds ? ` · ${formatTime(f.duration_seconds)}` : ""}
           </div>
-          <div style={{ marginTop: 6 }}>
+          <div style={{ marginTop: 8 }}>
             <button
               className="btn secondary small"
               onClick={(e) => {

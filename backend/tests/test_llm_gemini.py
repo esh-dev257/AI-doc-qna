@@ -68,12 +68,18 @@ class _FakeGenAI:
 
 @pytest.fixture
 def gemini_env(monkeypatch):
-    monkeypatch.setenv("GEMINI_API_KEY", "gm-test")
+    # Env keys are intentionally ignored by LLMClient now; tests pass the key
+    # via the constructor override instead.
+    monkeypatch.setenv("GEMINI_API_KEY", "")
     monkeypatch.setenv("OPENAI_API_KEY", "")
     monkeypatch.setenv("LLM_PROVIDER", "auto")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+def _gemini_client() -> llm_mod.LLMClient:
+    return llm_mod.LLMClient(gemini_key="gm-test")
 
 
 @pytest.fixture
@@ -95,23 +101,20 @@ def patched_genai(monkeypatch, gemini_env):
 
 @pytest.mark.asyncio
 async def test_provider_auto_picks_gemini(gemini_env):
-    assert llm_mod.LLMClient().provider() == "gemini"
+    assert _gemini_client().provider() == "gemini"
 
 
 @pytest.mark.asyncio
 async def test_provider_explicit_offline(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "offline")
-    monkeypatch.setenv("GEMINI_API_KEY", "whatever")
     get_settings.cache_clear()
-    assert llm_mod.LLMClient().provider() == "offline"
+    assert llm_mod.LLMClient(gemini_key="whatever").provider() == "offline"
     get_settings.cache_clear()
 
 
 @pytest.mark.asyncio
 async def test_provider_explicit_openai(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "openai")
-    monkeypatch.setenv("GEMINI_API_KEY", "")
-    monkeypatch.setenv("OPENAI_API_KEY", "")
     get_settings.cache_clear()
     assert llm_mod.LLMClient().provider() == "openai"
     get_settings.cache_clear()
@@ -119,7 +122,7 @@ async def test_provider_explicit_openai(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_gemini_embed(patched_genai):
-    client = llm_mod.LLMClient()
+    client = _gemini_client()
     out = await client.embed(["a", "b"])
     assert out == [[0.11, 0.22, 0.33], [0.11, 0.22, 0.33]]
     assert patched_genai.configured_with == "gm-test"
@@ -127,14 +130,14 @@ async def test_gemini_embed(patched_genai):
 
 @pytest.mark.asyncio
 async def test_gemini_chat(patched_genai):
-    client = llm_mod.LLMClient()
+    client = _gemini_client()
     text = await client.chat("sys", "q", context="c")
     assert text == "gemini answer"
 
 
 @pytest.mark.asyncio
 async def test_gemini_stream(patched_genai):
-    client = llm_mod.LLMClient()
+    client = _gemini_client()
     collected = []
     async for t in client.stream_chat("sys", "q", context="c"):
         collected.append(t)
@@ -143,7 +146,7 @@ async def test_gemini_stream(patched_genai):
 
 @pytest.mark.asyncio
 async def test_gemini_transcribe(patched_genai, tmp_path):
-    client = llm_mod.LLMClient()
+    client = _gemini_client()
     f = tmp_path / "x.mp3"
     f.write_bytes(b"\x00" * 100)
     res = await client.transcribe(str(f))
@@ -171,7 +174,7 @@ async def test_gemini_transcribe_invalid_json_falls_back(monkeypatch, gemini_env
     monkeypatch.setitem(sys.modules, "google", google_mod)
     monkeypatch.setattr(google_mod, "generativeai", fake, raising=False)
 
-    client = llm_mod.LLMClient()
+    client = _gemini_client()
     f = tmp_path / "x.mp3"
     f.write_bytes(b"\x00")
     res = await client.transcribe(str(f))
@@ -196,7 +199,7 @@ async def test_gemini_import_failure_falls_back(monkeypatch, gemini_env):
 
     monkeypatch.delitem(sys.modules, "google.generativeai", raising=False)
     monkeypatch.setattr(builtins, "__import__", fake_import)
-    client = llm_mod.LLMClient()
+    client = _gemini_client()
     # falls back to offline stub
     out = await client.embed(["a"])
     assert len(out) == 1 and len(out[0]) == llm_mod.EMBED_DIM

@@ -3,6 +3,7 @@ import { chat as chatApi, files as filesApi } from "../api.js";
 import MediaPlayer from "./MediaPlayer.jsx";
 import ChatPanel from "./ChatPanel.jsx";
 import Timestamps from "./Timestamps.jsx";
+import MermaidDiagram from "./MermaidDiagram.jsx";
 
 export default function FileDetail({ file, onRefresh }) {
   const mediaRef = useRef(null);
@@ -40,46 +41,56 @@ export default function FileDetail({ file, onRefresh }) {
     <div className="viewer">
       <div>
         <div className="card">
-          <h3 style={{ display: "flex", justifyContent: "space-between" }}>
-            <span>{file.filename}</span>
+          <h3 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+            <span style={{ wordBreak: "break-all" }}>{file.filename}</span>
             <span className={`badge ${file.status}`}>{file.status}</span>
           </h3>
-          {file.error && <div style={{ color: "var(--err)" }}>Error: {file.error}</div>}
+          {file.error && (
+            <div style={{ marginTop: 6 }}>
+              <span className="tag-red">ERROR</span>
+              <div style={{ color: "var(--red-2)", fontWeight: 700, marginTop: 4 }}>{file.error}</div>
+            </div>
+          )}
 
           {file.kind !== "pdf" && blobUrl && (
             <MediaPlayer ref={mediaRef} kind={file.kind} src={blobUrl} />
           )}
           {file.kind === "pdf" && file.status === "ready" && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: 14 }}>
               <a
                 className="btn secondary small"
                 href={`/api/files/${file.id}/media`}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Open PDF
+                Open PDF →
               </a>
             </div>
           )}
         </div>
-        <div className="card" style={{ marginTop: 16 }}>
-          <h3>Summary</h3>
+        <div className="card" style={{ marginTop: 18 }}>
+          <h3><span className="tag-red">SUMMARY</span></h3>
           <SummaryBlock file={file} />
         </div>
         {(file.kind === "audio" || file.kind === "video") && file.status === "ready" && (
-          <div className="card" style={{ marginTop: 16 }}>
-            <h3>Find Timestamps</h3>
+          <div className="card" style={{ marginTop: 18 }}>
+            <h3><span className="tag-red">TIMESTAMPS</span></h3>
             <Timestamps fileId={file.id} onPlay={playAt} />
           </div>
         )}
       </div>
       <div className="card">
-        <h3>Chat</h3>
+        <h3><span className="tag-red">CHAT</span></h3>
         {file.status === "ready" ? (
           <ChatPanel file={file} onPlay={playAt} />
         ) : (
           <div className="empty">
-            File is {file.status}. {file.status !== "failed" && <button className="btn small" onClick={onRefresh}>Refresh</button>}
+            File is <b>{file.status}</b>.{" "}
+            {file.status !== "failed" && (
+              <button className="btn small" onClick={onRefresh} style={{ marginLeft: 8 }}>
+                Refresh
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -88,23 +99,99 @@ export default function FileDetail({ file, onRefresh }) {
 }
 
 function SummaryBlock({ file }) {
-  const [text, setText] = useState(file.summary || "");
-  const [loading, setLoading] = useState(false);
+  const [text, setText] = useState("");
+  const [diagram, setDiagram] = useState("");
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [diagramLoading, setDiagramLoading] = useState(false);
 
+  // Reset whenever the selected file changes so we never flash the previous file's content.
   useEffect(() => {
-    if (file.summary) {
-      setText(file.summary);
-      return;
-    }
-    if (file.status !== "ready") return;
-    setLoading(true);
+    setText("");
+    setDiagram("");
+    setSummaryLoading(false);
+    setDiagramLoading(false);
+  }, [file.id]);
+
+  // Fetch summary + diagram once the file is ready. Summary first (fast),
+  // diagram lazily after (slower, gated on the summary being present).
+  useEffect(() => {
+    if (file.status !== "ready") return undefined;
+    let cancelled = false;
+
+    setSummaryLoading(true);
     filesApi
       .summary(file.id)
-      .then((res) => setText(res.summary || ""))
-      .finally(() => setLoading(false));
-  }, [file.id, file.status, file.summary]);
+      .then((res) => {
+        if (cancelled) return;
+        setText(res.summary || "");
+        if (res.diagram) setDiagram(res.diagram);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setSummaryLoading(false);
+      });
 
-  if (loading) return <div className="summary">Loading summary...</div>;
+    return () => {
+      cancelled = true;
+    };
+  }, [file.id, file.status]);
+
+  // Kick off diagram generation once we have a summary and no cached diagram.
+  useEffect(() => {
+    if (file.status !== "ready") return undefined;
+    if (!text) return undefined;
+    if (diagram) return undefined;
+    let cancelled = false;
+
+    setDiagramLoading(true);
+    filesApi
+      .diagram(file.id)
+      .then((res) => {
+        if (cancelled) return;
+        setDiagram(res.diagram || "");
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setDiagramLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [file.id, file.status, text, diagram]);
+
+  if (file.status === "pending" || file.status === "processing") {
+    return (
+      <div className="summary-loading">
+        <span className="spinner" /> Generating summary — this takes ~10–30s…
+      </div>
+    );
+  }
+  if (file.status === "failed") {
+    return <div className="summary" style={{ color: "var(--red-2)" }}>Processing failed. Try re-uploading.</div>;
+  }
+  if (summaryLoading) {
+    return (
+      <div className="summary-loading">
+        <span className="spinner" /> Loading summary…
+      </div>
+    );
+  }
   if (!text) return <div className="summary">No summary available yet.</div>;
-  return <div className="summary">{text}</div>;
+
+  return (
+    <>
+      <div className="summary">{text}</div>
+      {diagramLoading && !diagram && (
+        <div className="summary-loading" style={{ marginTop: 14 }}>
+          <span className="spinner" /> Drawing flow diagram…
+        </div>
+      )}
+      {diagram && (
+        <div className="diagram-wrap">
+          <MermaidDiagram source={diagram} />
+        </div>
+      )}
+    </>
+  );
 }

@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from app.database import get_db
-from app.deps import get_current_user, user_rate_limit
+from app.deps import get_current_user, get_llm_for_request, user_rate_limit
 from app.models import ChatCitation, ChatRequest, ChatResponse, TimestampHit, TimestampRequest, TimestampResponse
 from app.services import cache
-from app.services.llm import get_llm
+from app.services.llm import LLMClient
 from app.services.vector_store import search
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -48,14 +48,17 @@ def _build_context(hits: list) -> str:
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(req: ChatRequest, user: dict = Depends(user_rate_limit)) -> ChatResponse:
+async def chat(
+    req: ChatRequest,
+    user: dict = Depends(user_rate_limit),
+    llm: LLMClient = Depends(get_llm_for_request),
+) -> ChatResponse:
     await _get_file_for_user(req.file_id, user["id"])
     cache_key = f"chat:{user['id']}:{req.file_id}:{req.top_k}:{req.question.strip().lower()}"
     cached = cache.get(cache_key)
     if cached:
         return ChatResponse(**cached)
 
-    llm = get_llm()
     q_emb = (await llm.embed([req.question]))[0]
     hits = await search(req.file_id, q_emb, top_k=req.top_k)
     context = _build_context(hits)
@@ -78,9 +81,12 @@ async def chat(req: ChatRequest, user: dict = Depends(user_rate_limit)) -> ChatR
 
 
 @router.post("/stream")
-async def chat_stream(req: ChatRequest, user: dict = Depends(user_rate_limit)):
+async def chat_stream(
+    req: ChatRequest,
+    user: dict = Depends(user_rate_limit),
+    llm: LLMClient = Depends(get_llm_for_request),
+):
     await _get_file_for_user(req.file_id, user["id"])
-    llm = get_llm()
     q_emb = (await llm.embed([req.question]))[0]
     hits = await search(req.file_id, q_emb, top_k=req.top_k)
     context = _build_context(hits)
@@ -106,11 +112,14 @@ async def chat_stream(req: ChatRequest, user: dict = Depends(user_rate_limit)):
 
 
 @router.post("/timestamps", response_model=TimestampResponse)
-async def timestamps(req: TimestampRequest, user: dict = Depends(user_rate_limit)) -> TimestampResponse:
+async def timestamps(
+    req: TimestampRequest,
+    user: dict = Depends(user_rate_limit),
+    llm: LLMClient = Depends(get_llm_for_request),
+) -> TimestampResponse:
     doc = await _get_file_for_user(req.file_id, user["id"])
     if doc.get("kind") not in ("audio", "video"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Timestamps only apply to audio/video")
-    llm = get_llm()
     q_emb = (await llm.embed([req.topic]))[0]
     hits = await search(req.file_id, q_emb, top_k=req.top_k)
     out: list[TimestampHit] = []

@@ -20,10 +20,21 @@ from app.config import get_settings
 
 
 class LLMClient:
-    def __init__(self) -> None:
+    def __init__(self, gemini_key: str | None = None, openai_key: str | None = None) -> None:
         self._openai_client = None
         self._gemini_configured = False
         self._genai = None
+        # Per-instance overrides. When set, these win over env settings.
+        self._gemini_override = gemini_key or None
+        self._openai_override = openai_key or None
+
+    def _gemini_key(self) -> str:
+        # Only user-supplied keys are ever used. Env keys are ignored by design
+        # so the service never spends the operator's credits.
+        return self._gemini_override or ""
+
+    def _openai_key(self) -> str:
+        return self._openai_override or ""
 
     # --- provider resolution -------------------------------------------------
 
@@ -31,9 +42,9 @@ class LLMClient:
         settings = get_settings()
         choice = (settings.llm_provider or "auto").lower()
         if choice == "auto":
-            if settings.gemini_api_key:
+            if self._gemini_key():
                 return "gemini"
-            if settings.openai_api_key:
+            if self._openai_key():
                 return "openai"
             return "offline"
         return choice
@@ -41,27 +52,27 @@ class LLMClient:
     def _openai(self):
         if self._openai_client is not None:
             return self._openai_client
-        settings = get_settings()
-        if not settings.openai_api_key:
+        key = self._openai_key()
+        if not key:
             return None
         try:
             from openai import OpenAI
         except Exception:
             return None
-        self._openai_client = OpenAI(api_key=settings.openai_api_key)
+        self._openai_client = OpenAI(api_key=key)
         return self._openai_client
 
     def _gemini(self):
         if self._gemini_configured and self._genai is not None:
             return self._genai
-        settings = get_settings()
-        if not settings.gemini_api_key:
+        key = self._gemini_key()
+        if not key:
             return None
         try:
             import google.generativeai as genai
         except Exception:
             return None
-        genai.configure(api_key=settings.gemini_api_key)
+        genai.configure(api_key=key)
         self._genai = genai
         self._gemini_configured = True
         return genai
@@ -173,6 +184,49 @@ class LLMClient:
             ),
             user=f"Summarize the following content:\n\n{snippet}",
         )
+
+    async def generate_diagram(self, text: str) -> str:
+        """Produce only a Mermaid flowchart from text. Offline returns a stub."""
+        if self.provider() == "offline":
+            return _stub_mermaid()
+        snippet = text[:8000]
+        raw = await self.chat(
+            system=(
+                "You produce a Mermaid flowchart summarizing the document's flow. "
+                "Return ONLY the mermaid source, no markdown fences, no prose. "
+                "Start with 'flowchart TD' or 'flowchart LR'. Use simple "
+                "A[Label]-->B[Label] syntax. 5-10 nodes maximum."
+            ),
+            user=f"Document:\n\n{snippet}",
+        )
+        cleaned = re.sub(r"^```(?:mermaid)?\s*|\s*```$", "", (raw or "").strip()).strip()
+        if not cleaned.lower().startswith("flowchart"):
+            return _stub_mermaid()
+        return cleaned
+
+    async def summarize_with_diagram(self, text: str) -> dict:
+        """Return {'summary': str, 'mermaid': str} in one LLM call."""
+        snippet = text[:12000]
+        if self.provider() == "offline":
+            return {
+                "summary": await self.summarize(text),
+                "mermaid": _stub_mermaid(),
+            }
+        system = (
+            "You produce a concise summary AND a Mermaid flow diagram. "
+            "Return STRICT JSON (no markdown, no prose) with exactly two fields: "
+            '{"summary": "5-10 sentence summary", "mermaid": "flowchart TD\\n..."}\\n'
+            "The mermaid field MUST start with 'flowchart TD' or 'flowchart LR' and use "
+            "simple square nodes like A[Label] and arrows A-->B. Keep it to 5-10 nodes. "
+            "Escape newlines inside the JSON string values."
+        )
+        raw = await self.chat(system=system, user=f"Document:\n\n{snippet}")
+        parsed = _parse_summary_diagram(raw)
+        if not parsed.get("summary"):
+            parsed["summary"] = await self.summarize(text)
+        if not parsed.get("mermaid"):
+            parsed["mermaid"] = _stub_mermaid()
+        return parsed
 
     # --- transcription -------------------------------------------------------
 
@@ -331,6 +385,36 @@ def _stub_answer(question: str, context: str | None) -> str:
         snippet = context[:400].replace("\n", " ")
         return f"Based on the provided content: {snippet}..."
     return f"[offline-mode] You asked: {question}"
+
+
+def _parse_summary_diagram(raw: str) -> dict:
+    text = (raw or "").strip()
+    fenced = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text)
+    if fenced:
+        text = fenced.group(1)
+    m = re.search(r"\{[\s\S]*\}", text)
+    candidate = m.group(0) if m else text
+    try:
+        data = json.loads(candidate)
+    except Exception:
+        return {"summary": "", "mermaid": ""}
+    if not isinstance(data, dict):
+        return {"summary": "", "mermaid": ""}
+    summary = str(data.get("summary") or "").strip()
+    mermaid = str(data.get("mermaid") or "").strip()
+    # Defensive: strip any leftover fences inside the mermaid string.
+    mermaid = re.sub(r"^```(?:mermaid)?\s*|\s*```$", "", mermaid).strip()
+    return {"summary": summary, "mermaid": mermaid}
+
+
+def _stub_mermaid() -> str:
+    return (
+        "flowchart TD\n"
+        "    A[Upload file] --> B[Extract text]\n"
+        "    B --> C[Chunk & embed]\n"
+        "    C --> D[Summarize]\n"
+        "    D --> E[Ready to chat]"
+    )
 
 
 def _stub_transcription(file_path: str) -> dict:

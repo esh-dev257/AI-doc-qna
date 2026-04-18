@@ -65,11 +65,9 @@ def openai_client(monkeypatch):
     from app.config import get_settings
 
     monkeypatch.setenv("LLM_PROVIDER", "openai")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("GEMINI_API_KEY", "")
     get_settings.cache_clear()
     fake = FakeOpenAIClient()
-    client = llm_mod.LLMClient()
+    client = llm_mod.LLMClient(openai_key="sk-test")
     client._openai_client = fake
     yield client
     get_settings.cache_clear()
@@ -105,20 +103,14 @@ async def test_openai_transcribe(openai_client, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_openai_client_creation_no_key(monkeypatch):
-    from app.config import get_settings
-
-    get_settings.cache_clear()
-    monkeypatch.setenv("OPENAI_API_KEY", "")
-    get_settings.cache_clear()
+async def test_openai_client_creation_no_key():
+    # No override key + env ignored -> no client.
     client = llm_mod.LLMClient()
     assert client._openai() is None
 
 
 @pytest.mark.asyncio
 async def test_openai_client_creation_with_key(monkeypatch):
-    from app.config import get_settings
-
     created = {}
 
     class FakeOpenAI:
@@ -129,15 +121,12 @@ async def test_openai_client_creation_with_key(monkeypatch):
     import openai as openai_module
 
     monkeypatch.setattr(openai_module, "OpenAI", FakeOpenAI, raising=False)
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    get_settings.cache_clear()
-    client = llm_mod.LLMClient()
+    client = llm_mod.LLMClient(openai_key="sk-test")
     c = client._openai()
     assert c is not None and getattr(c, "ok", False)
     assert created["api_key"] == "sk-test"
     # caches instance
     assert client._openai() is c
-    get_settings.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -152,13 +141,8 @@ async def test_openai_import_failure(monkeypatch):
         return orig_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", failing_import)
-    from app.config import get_settings
-
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    get_settings.cache_clear()
-    client = llm_mod.LLMClient()
+    client = llm_mod.LLMClient(openai_key="sk-test")
     assert client._openai() is None
-    get_settings.cache_clear()
 
 
 @pytest.mark.asyncio
@@ -166,11 +150,9 @@ async def test_openai_chat_returns_empty_when_none(monkeypatch):
     from app.config import get_settings
 
     monkeypatch.setenv("LLM_PROVIDER", "openai")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("GEMINI_API_KEY", "")
     get_settings.cache_clear()
 
-    client = llm_mod.LLMClient()
+    client = llm_mod.LLMClient(openai_key="sk-test")
 
     class NoneContent:
         choices = [types.SimpleNamespace(message=types.SimpleNamespace(content=None))]

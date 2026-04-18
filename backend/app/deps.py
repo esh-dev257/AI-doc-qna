@@ -4,6 +4,7 @@ from bson import ObjectId
 from fastapi import Depends, Header, HTTPException, Request, status
 
 from app.database import get_db
+from app.services.llm import LLMClient, get_llm
 from app.services.rate_limit import check_rate_limit
 from app.services.security import decode_token
 
@@ -44,3 +45,25 @@ async def user_rate_limit(user: dict = Depends(get_current_user)) -> dict:
     if not check_rate_limit(f"user:{user['id']}"):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many requests")
     return user
+
+
+def api_keys_from_headers(
+    x_gemini_api_key: str | None = Header(default=None, alias="X-Gemini-Api-Key"),
+    x_openai_api_key: str | None = Header(default=None, alias="X-OpenAI-Api-Key"),
+) -> dict:
+    """Extract user-provided API keys from request headers."""
+    return {
+        "gemini": (x_gemini_api_key or "").strip() or None,
+        "openai": (x_openai_api_key or "").strip() or None,
+    }
+
+
+def get_llm_for_request(keys: dict = Depends(api_keys_from_headers)) -> LLMClient:
+    """LLM client seeded with user's header keys, falling back to env/singleton.
+
+    When no headers are provided, returns the shared singleton so tests that
+    call ``set_llm()`` continue to work unchanged.
+    """
+    if keys.get("gemini") or keys.get("openai"):
+        return LLMClient(gemini_key=keys.get("gemini"), openai_key=keys.get("openai"))
+    return get_llm()

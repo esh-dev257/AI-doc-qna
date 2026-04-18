@@ -52,7 +52,9 @@ export default function ChatPanel({ file, onPlay }) {
     <div className="chat">
       <div className="messages">
         {messages.length === 0 && (
-          <div className="empty">Ask a question about this file.</div>
+          <div className="empty">
+            Ask a question about this file.
+          </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className={`msg ${m.role}`}>
@@ -81,19 +83,19 @@ export default function ChatPanel({ file, onPlay }) {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask something..."
+          placeholder="Ask a question..."
           disabled={busy}
         />
         <button className="btn" disabled={busy}>
-          Send
+          Send →
         </button>
       </form>
-      <label style={{ fontSize: 12, color: "var(--muted)" }}>
+      <label style={{ fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }}>
         <input
           type="checkbox"
           checked={stream}
           onChange={(e) => setStream(e.target.checked)}
-        />{" "}
+        />
         stream response
       </label>
     </div>

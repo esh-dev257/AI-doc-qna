@@ -7,7 +7,13 @@ const MediaPlayer = forwardRef(function MediaPlayer({ kind, src }, ref) {
         ref={ref}
         controls
         src={src}
-        style={{ width: "100%", borderRadius: 8, background: "black", marginTop: 8 }}
+        style={{
+          width: "100%",
+          borderRadius: 14,
+          background: "black",
+          marginTop: 12,
+          border: "2px solid var(--text)",
+        }}
       />
     );
   }
@@ -16,7 +22,7 @@ const MediaPlayer = forwardRef(function MediaPlayer({ kind, src }, ref) {
       ref={ref}
       controls
       src={src}
-      style={{ width: "100%", marginTop: 8 }}
+      style={{ width: "100%", marginTop: 12 }}
     />
   );
 });

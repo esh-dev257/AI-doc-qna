@@ -25,7 +25,7 @@ export default function Timestamps({ fileId, onPlay }) {
 
   return (
     <div>
-      <form onSubmit={submit} style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+      <form onSubmit={submit} style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         <input
           type="text"
           value={topic}
@@ -33,25 +33,28 @@ export default function Timestamps({ fileId, onPlay }) {
           placeholder="Enter a topic..."
           style={{
             flex: 1,
-            padding: "8px 10px",
-            background: "var(--bg)",
+            padding: "10px 16px",
+            background: "#FFF",
             color: "var(--text)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
+            border: "2px solid var(--text)",
+            borderRadius: 999,
+            fontFamily: "var(--font-body)",
+            fontSize: 14,
+            outline: "none",
           }}
         />
         <button className="btn" disabled={busy}>
-          Find
+          Find →
         </button>
       </form>
-      {error && <div style={{ color: "var(--err)", marginBottom: 6 }}>{error}</div>}
-      {hits.length === 0 && !busy && <div className="empty" style={{ padding: 10 }}>No results yet.</div>}
+      {error && <div style={{ color: "var(--red-2)", marginBottom: 6, fontWeight: 700 }}>{error}</div>}
+      {hits.length === 0 && !busy && <div className="empty" style={{ padding: 12 }}>No results yet.</div>}
       <div className="timestamps">
         {hits.map((h) => (
           <div key={h.chunk_id} className="item">
             <span className="t">{formatTime(h.start_time)} – {formatTime(h.end_time)}</span>
             <span className="snippet">{h.text.slice(0, 120)}</span>
-            <button className="btn small" onClick={() => onPlay?.(h.start_time)}>▶ Play</button>
+            <button className="btn small red" onClick={() => onPlay?.(h.start_time)}>▶ Play</button>
           </div>
         ))}
       </div>

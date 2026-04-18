@@ -1,7 +1,5 @@
 import { useRef, useState } from "react";
-import { files } from "../api.js";
-
-const ACCEPT = ".pdf,.mp3,.wav,.m4a,.mp4,.mov,.mkv,.webm,application/pdf,audio/*,video/*";
+import { ACCEPT_ATTRIBUTE, files, validateUpload } from "../api.js";
 
 export default function Uploader({ onUploaded }) {
   const ref = useRef(null);
@@ -12,6 +10,12 @@ export default function Uploader({ onUploaded }) {
   const onFile = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const problem = validateUpload(file);
+    if (problem) {
+      setError(problem);
+      if (ref.current) ref.current.value = "";
+      return;
+    }
     setBusy(true);
     setProgress(0);
     setError("");
@@ -30,18 +34,26 @@ export default function Uploader({ onUploaded }) {
 
   return (
     <div className="uploader">
-      <input ref={ref} type="file" accept={ACCEPT} onChange={onFile} />
+      <input ref={ref} type="file" accept={ACCEPT_ATTRIBUTE} onChange={onFile} />
+      <div style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 18, marginTop: 6, marginBottom: 10 }}>
+        Drop a file
+      </div>
       <button
         className="btn"
         onClick={() => ref.current?.click()}
         disabled={busy}
       >
-        {busy ? `Uploading ${progress}%` : "Upload PDF / Audio / Video"}
+        {busy ? `Uploading ${progress}%` : "Choose file →"}
       </button>
-      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
-        Max 200MB. PDF, MP3/WAV/M4A, MP4/MOV/WebM supported.
+      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 12, fontFamily: "var(--font-mono)" }}>
+        Max 200MB &nbsp;·&nbsp; PDF, MP3, WAV, M4A, MP4, MOV, WebM
       </div>
-      {error && <div style={{ color: "var(--err)", marginTop: 6 }}>{error}</div>}
+      {error && (
+        <div style={{ marginTop: 12, display: "inline-block" }}>
+          <span className="tag-red">ERROR</span>
+          <div style={{ color: "var(--red-2)", marginTop: 6, fontWeight: 700 }}>{error}</div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,10 +1,46 @@
 import axios from "axios";
 
+export const ALLOWED_EXTENSIONS = {
+  pdf: ["pdf"],
+  audio: ["mp3", "wav", "m4a"],
+  video: ["mp4", "mov", "webm"],
+};
+export const ALLOWED_EXT_FLAT = Object.values(ALLOWED_EXTENSIONS).flat();
+export const ACCEPT_ATTRIBUTE = [
+  ".pdf", ".mp3", ".wav", ".m4a", ".mp4", ".mov", ".webm",
+  "application/pdf", "audio/mpeg", "audio/wav", "audio/x-m4a",
+  "video/mp4", "video/quicktime", "video/webm",
+].join(",");
+
+export function validateUpload(file, maxMb = 200) {
+  if (!file) return "Please pick a file.";
+  const name = (file.name || "").toLowerCase();
+  const dot = name.lastIndexOf(".");
+  const ext = dot >= 0 ? name.slice(dot + 1) : "";
+  if (!ALLOWED_EXT_FLAT.includes(ext)) {
+    return `Only ${ALLOWED_EXT_FLAT.join(", ").toUpperCase()} files are allowed.`;
+  }
+  if (file.size === 0) return "File is empty.";
+  if (file.size > maxMb * 1024 * 1024) return `File too large (max ${maxMb} MB).`;
+  return null;
+}
+
+export function apiKeyHeaders() {
+  const out = {};
+  const g = localStorage.getItem("gemini_api_key");
+  const o = localStorage.getItem("openai_api_key");
+  if (g) out["X-Gemini-Api-Key"] = g;
+  if (o) out["X-OpenAI-Api-Key"] = o;
+  return out;
+}
+
 const api = axios.create({ baseURL: "/api" });
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  const extra = apiKeyHeaders();
+  for (const [k, v] of Object.entries(extra)) config.headers[k] = v;
   return config;
 });
 
@@ -27,6 +63,7 @@ export const files = {
       })
       .then((r) => r.data),
   summary: (id) => api.get(`/files/${id}/summary`).then((r) => r.data),
+  diagram: (id) => api.post(`/files/${id}/summary/diagram`).then((r) => r.data),
   mediaUrl: (id) => {
     const token = localStorage.getItem("token");
     return `/api/files/${id}/media?t=${encodeURIComponent(token || "")}`;
@@ -46,6 +83,7 @@ export const chat = {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        ...apiKeyHeaders(),
       },
       body: JSON.stringify({ file_id, question, top_k }),
     });

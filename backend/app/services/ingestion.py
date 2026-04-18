@@ -1,6 +1,7 @@
 """Ingestion pipeline: turn an uploaded file into searchable chunks + summary."""
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,12 +14,23 @@ from app.services.extraction import (
     chunks_from_segments,
     extract_pdf_text,
 )
-from app.services.llm import get_llm
+from app.services.llm import LLMClient, get_llm
 
 
-async def ingest_file(file_id: str, file_path: str, kind: str) -> dict:
+async def ingest_file(
+    file_id: str,
+    file_path: str,
+    kind: str,
+    api_keys: dict | None = None,
+) -> dict:
     db = get_db()
-    llm = get_llm()
+    if api_keys and (api_keys.get("gemini") or api_keys.get("openai")):
+        llm = LLMClient(
+            gemini_key=api_keys.get("gemini"),
+            openai_key=api_keys.get("openai"),
+        )
+    else:
+        llm = get_llm()
 
     await db.files.update_one({"_id": ObjectId(file_id)}, {"$set": {"status": "processing"}})
 
@@ -46,7 +58,11 @@ async def ingest_file(file_id: str, file_path: str, kind: str) -> dict:
         if not chunks:
             raise ValueError("No text extracted from file")
 
-        embeddings = await llm.embed([c.text for c in chunks])
+        # Run embedding and summary concurrently — they don't depend on each
+        # other. Saves ~2-5s depending on document size.
+        embed_coro = llm.embed([c.text for c in chunks])
+        summary_coro = llm.summarize(full_text) if full_text else _noop_summary()
+        embeddings, summary = await asyncio.gather(embed_coro, summary_coro)
 
         chunk_docs = []
         for c, emb in zip(chunks, embeddings):
@@ -62,8 +78,6 @@ async def ingest_file(file_id: str, file_path: str, kind: str) -> dict:
                 }
             )
         await db.chunks.insert_many(chunk_docs)
-
-        summary = await llm.summarize(full_text) if full_text else ""
 
         await db.files.update_one(
             {"_id": ObjectId(file_id)},
@@ -85,6 +99,10 @@ async def ingest_file(file_id: str, file_path: str, kind: str) -> dict:
             {"$set": {"status": "failed", "error": str(exc)}},
         )
         raise
+
+
+async def _noop_summary() -> str:
+    return ""
 
 
 def delete_file_blob(file_path: str) -> None:

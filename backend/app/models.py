@@ -96,3 +96,9 @@ class TimestampResponse(BaseModel):
 class SummaryResponse(BaseModel):
     file_id: str
     summary: str
+    diagram: str = ""
+
+
+class DiagramResponse(BaseModel):
+    file_id: str
+    diagram: str
